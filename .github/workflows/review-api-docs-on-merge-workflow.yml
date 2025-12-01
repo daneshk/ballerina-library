@@ -1,0 +1,199 @@
+name: Review API Documentation on PR Merge
+
+on:
+  # Trigger on push to main branch (when PR is merged)
+  push:
+    branches:
+      - main
+    paths:
+      - 'ballerina/**/*.bal'
+
+  # Also allow manual trigger for testing
+  workflow_dispatch:
+    inputs:
+      force_full_review:
+        description: 'Force full review instead of incremental'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+
+jobs:
+  review-api-docs:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout ballerina-library repository
+        uses: actions/checkout@v3
+        with:
+          repository: ballerina-platform/ballerina-library
+          path: ballerina-library
+
+      - name: Checkout current repository
+        uses: actions/checkout@v3
+        with:
+          token: ${{ secrets.BALLERINA_BOT_TOKEN }}
+          path: current-repo
+          fetch-depth: 0  # Fetch all history for git operations
+
+      - name: Set up Ballerina
+        uses: ballerina-platform/setup-ballerina@v1.1.0
+        with:
+          version: latest
+
+      - name: Determine Review Mode
+        id: review_mode
+        run: |
+          if [[ "${{ github.event.inputs.force_full_review }}" == "true" ]]; then
+            echo "mode=full" >> $GITHUB_OUTPUT
+            echo "Running FULL review (forced via manual trigger)"
+          elif [[ -f "current-repo/.api-docs-review-state.json" ]]; then
+            echo "mode=incremental" >> $GITHUB_OUTPUT
+            echo "Running INCREMENTAL review (state file exists)"
+          else
+            echo "mode=full" >> $GITHUB_OUTPUT
+            echo "Running FULL review (no state file found)"
+          fi
+
+      - name: Run API Docs Review
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          cd ballerina-library/api_doc_reviewer
+
+          if [[ "${{ steps.review_mode.outputs.mode }}" == "incremental" ]]; then
+            # Incremental review
+            bal run -- incremental \
+              ../../current-repo \
+              ../.claude/commands/review-docs.md \
+              --commit-sha ${{ github.sha }}
+          else
+            # Full review
+            bal run -- full \
+              ../../current-repo \
+              ../.claude/commands/review-docs.md
+          fi
+
+      - name: Check for changes
+        id: check_changes
+        working-directory: current-repo
+        run: |
+          if [[ -n $(git status --porcelain) ]]; then
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create Pull Request
+        if: steps.check_changes.outputs.has_changes == 'true'
+        working-directory: current-repo
+        env:
+          GITHUB_TOKEN: ${{ secrets.BALLERINA_BOT_TOKEN }}
+        run: |
+          git config user.name "ballerina-bot"
+          git config user.email "ballerina-bot@ballerina.io"
+
+          BRANCH_NAME="auto-review-api-docs-${{ github.run_number }}"
+          git checkout -b $BRANCH_NAME
+          git add .
+
+          # Determine review mode for commit message
+          if [[ "${{ steps.review_mode.outputs.mode }}" == "incremental" ]]; then
+            REVIEW_MODE="incremental"
+          else
+            REVIEW_MODE="full"
+          fi
+
+          {
+            echo "Improve API documentation (${REVIEW_MODE} review)"
+            echo ""
+            echo "Automated API documentation improvements based on Ballerina connector"
+            echo "documentation guidelines. This review was triggered by commit ${{ github.sha }}."
+            echo ""
+            echo "Review mode: ${REVIEW_MODE}"
+            echo ""
+            echo "Co-Authored-By: Claude <noreply@anthropic.com>"
+          } > /tmp/commit-msg.txt
+
+          git commit -F /tmp/commit-msg.txt
+          git push -u origin $BRANCH_NAME
+
+          # Generate PR body
+          if [[ "${{ steps.review_mode.outputs.mode }}" == "incremental" ]]; then
+            PR_TITLE="Improve API documentation (incremental review)"
+            REVIEW_SCOPE="This is an **incremental review** that only processed files that changed since the last review."
+          else
+            PR_TITLE="Improve API documentation (full review)"
+            REVIEW_SCOPE="This is a **full review** of all API documentation files."
+          fi
+
+          {
+            echo "## Summary"
+            echo ""
+            echo "Automated API documentation improvements for commit [\`${GITHUB_SHA:0:7}\`](${{ github.event.head_commit.url }})."
+            echo ""
+            echo "${REVIEW_SCOPE}"
+            echo ""
+            echo "## Changes Made"
+            echo ""
+            echo "- Simplified function and type descriptions for better readability"
+            echo "- Removed \"Represents\" prefixes from record and enum descriptions"
+            echo "- Added comprehensive descriptions for enum types"
+            echo "- Improved record field descriptions with clearer context"
+            echo "- Preserved important details (costs, limits, security implications, valid values)"
+            echo "- Kept brief 1-2 line usage code snippets while removing complex examples"
+            echo ""
+            echo "## Documentation Guidelines Applied"
+            echo ""
+            echo "This review follows the Ballerina connector API documentation guidelines:"
+            echo "- https://github.com/ballerina-platform/ballerina-library/blob/main/.claude/commands/review-docs.md"
+            echo ""
+            echo "## Review Details"
+            echo ""
+            echo "- **Trigger**: PR merge to main branch"
+            echo "- **Commit**: \`${{ github.sha }}\`"
+            echo "- **Review mode**: ${REVIEW_MODE}"
+            echo "- **Workflow run**: [${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+            echo ""
+            echo "## Review Checklist"
+            echo ""
+            echo "Please verify:"
+            echo "- [ ] Function descriptions are clear and concise"
+            echo "- [ ] Enum types have comprehensive descriptions"
+            echo "- [ ] Record fields are well-documented"
+            echo "- [ ] No \"Represents\" prefixes remain"
+            echo "- [ ] Important context (costs, limits, security) is preserved"
+            echo "- [ ] Brief usage snippets are helpful"
+            echo "- [ ] Technical accuracy is maintained"
+            echo ""
+            echo "---"
+            echo ""
+            echo "🤖 Generated with Claude Code (Automated Review)"
+          } > /tmp/pr-body.txt
+
+          gh pr create \
+            --title "${PR_TITLE}" \
+            --base main \
+            --head "$BRANCH_NAME" \
+            --body-file /tmp/pr-body.txt \
+            --label "documentation" \
+            --label "automated"
+
+      - name: No changes detected
+        if: steps.check_changes.outputs.has_changes == 'false'
+        run: |
+          echo "✓ No documentation changes needed."
+          echo "The API docs are already up to date with the review guidelines."
+
+      - name: Update Review Statistics
+        if: steps.check_changes.outputs.has_changes == 'true'
+        run: |
+          echo "## Review Statistics" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Review Mode**: ${{ steps.review_mode.outputs.mode }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit**: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **PR Created**: ✓ Yes" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "The API documentation has been reviewed and a PR has been created with improvements." >> $GITHUB_STEP_SUMMARY

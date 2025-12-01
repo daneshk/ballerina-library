@@ -1,0 +1,17 @@
+# Ballerina Connector Repositories
+#
+# Format: One repository per line
+# - Local paths: /path/to/local/repo
+# - Remote URLs: https://github.com/org/repo.git
+# - Comments: Lines starting with # are ignored
+# - Empty lines are ignored
+
+# Example local repositories
+# /path/to/your/module-ballerinax-aws.s3
+# ~/projects/module-ballerinax-aws.lambda
+
+# Example remote repositories (will be cloned to temp directory)
+# https://github.com/ballerina-platform/module-ballerinax-aws.dynamodb.git
+# https://github.com/ballerina-platform/module-ballerinax-aws.sns.git
+
+# Add your repositories below:
