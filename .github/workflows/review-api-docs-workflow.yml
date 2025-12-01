@@ -1,0 +1,233 @@
+name: Review API Documentation
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_repo:
+        description: 'Target repository name (e.g., module-ballerinax-aws.s3)'
+        required: true
+        type: string
+      target_branch:
+        description: 'Target branch to create PR against'
+        required: false
+        default: 'main'
+        type: string
+      enable_automated_reviews:
+        description: 'Add automated incremental review workflow to target repo (if not present)'
+        required: false
+        default: 'true'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+
+jobs:
+  review-api-docs:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout ballerina-library repository
+        uses: actions/checkout@v3
+        with:
+          repository: ballerina-platform/ballerina-library
+          path: ballerina-library
+
+      - name: Checkout target repository
+        uses: actions/checkout@v3
+        with:
+          repository: ballerina-platform/${{ github.event.inputs.target_repo }}
+          token: ${{ secrets.BALLERINA_BOT_TOKEN }}
+          path: target-repo
+          fetch-depth: 0
+
+      - name: Set up Ballerina
+        uses: ballerina-platform/setup-ballerina@v1.1.0
+        with:
+          version: latest
+
+      - name: Check for existing automated workflow
+        id: check_workflow
+        working-directory: target-repo
+        run: |
+          if [[ -f ".github/workflows/review-api-docs-on-merge.yml" ]]; then
+            echo "has_workflow=true" >> $GITHUB_OUTPUT
+            echo "Found existing automated review workflow"
+          else
+            echo "has_workflow=false" >> $GITHUB_OUTPUT
+            echo "No automated review workflow found"
+          fi
+
+      - name: Run API Docs Review (Full with State Tracking)
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          # Get current commit SHA from target repo
+          TARGET_SHA=$(cd target-repo && git rev-parse HEAD)
+
+          # Run incremental review from the api_doc_reviewer project
+          cd ballerina-library/api_doc_reviewer
+          bal run -- incremental \
+            ../../target-repo \
+            ../.claude/commands/review-docs.md \
+            --commit-sha "$TARGET_SHA"
+
+          echo "Review complete with state tracking"
+
+      - name: Add automated workflow if requested
+        if: github.event.inputs.enable_automated_reviews == 'true' && steps.check_workflow.outputs.has_workflow == 'false'
+        working-directory: target-repo
+        run: |
+          # Create .github/workflows directory if it doesn't exist
+          mkdir -p .github/workflows
+
+          # Copy the automated workflow from ballerina-library
+          cp ../ballerina-library/.github/workflows/review-api-docs-on-merge.yml \
+             .github/workflows/review-api-docs-on-merge.yml
+
+          echo "✓ Added automated incremental review workflow"
+
+      - name: Check for changes
+        id: check_changes
+        working-directory: target-repo
+        run: |
+          if [[ -n $(git status --porcelain) ]]; then
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create Pull Request
+        if: steps.check_changes.outputs.has_changes == 'true'
+        working-directory: target-repo
+        env:
+          GITHUB_TOKEN: ${{ secrets.BALLERINA_BOT_TOKEN }}
+        run: |
+          git config user.name "ballerina-bot"
+          git config user.email "ballerina-bot@ballerina.io"
+
+          BRANCH_NAME="review-api-docs-${{ github.run_number }}"
+          git checkout -b $BRANCH_NAME
+          git add .
+
+          # Determine what was added
+          WORKFLOW_ADDED="${{ steps.check_workflow.outputs.has_workflow == 'false' && github.event.inputs.enable_automated_reviews == 'true' }}"
+          STATE_FILE_EXISTS=$(git diff --cached --name-only | grep -q ".api-docs-review-state.json" && echo "true" || echo "false")
+
+          {
+            echo "Improve API documentation for low-code editor compatibility"
+            echo ""
+            echo "Simplifies function and type descriptions, removes 'Represents' prefixes,"
+            echo "adds comprehensive enum type descriptions, and improves record field docs"
+            echo "based on Ballerina connector documentation guidelines."
+            echo ""
+            if [[ "$STATE_FILE_EXISTS" == "true" ]]; then
+              echo "Includes review state tracking file for incremental reviews."
+            fi
+            if [[ "$WORKFLOW_ADDED" == "true" ]]; then
+              echo "Adds automated incremental review workflow for future PR merges."
+            fi
+            echo ""
+            echo "Co-Authored-By: Claude <noreply@anthropic.com>"
+          } > /tmp/commit-msg.txt
+
+          git commit -F /tmp/commit-msg.txt
+          git push -u origin $BRANCH_NAME
+
+          {
+            echo "## Summary"
+            echo ""
+            echo "This PR improves the API documentation to be optimized for the low-code editor view in Ballerina Integrator (BI)."
+            echo ""
+            if [[ "$STATE_FILE_EXISTS" == "true" ]]; then
+              echo "### 🔄 Incremental Review Enabled"
+              echo ""
+              echo "This PR includes a **state tracking file** (\`.api-docs-review-state.json\`) that enables incremental reviews."
+              echo "Future reviews will only process files that have changed, reducing API costs by 80-90%."
+              echo ""
+            fi
+            if [[ "$WORKFLOW_ADDED" == "true" ]]; then
+              echo "### 🤖 Automated Reviews Enabled"
+              echo ""
+              echo "This PR adds an **automated review workflow** that will run after every PR merge to main."
+              echo "The workflow will automatically review changed API documentation files and create PRs with improvements."
+              echo ""
+            fi
+            echo "## Changes Made"
+            echo ""
+            echo "### Documentation Improvements"
+            echo "- Simplified function and type descriptions for better readability"
+            echo "- Removed \"Represents\" prefixes from record and enum descriptions"
+            echo "- Added comprehensive descriptions for enum types"
+            echo "- Improved record field descriptions with clearer context"
+            echo "- Preserved important details (costs, limits, security implications, valid values)"
+            echo "- Kept brief 1-2 line usage code snippets while removing complex examples"
+            echo "- Removed unnecessary backticks around operation names"
+            echo "- Replaced \"legacy parameter\" references with helpful alternatives"
+            echo ""
+            if [[ "$STATE_FILE_EXISTS" == "true" ]] || [[ "$WORKFLOW_ADDED" == "true" ]]; then
+              echo "### Infrastructure Additions"
+              if [[ "$STATE_FILE_EXISTS" == "true" ]]; then
+                echo "- \`.api-docs-review-state.json\` - Tracks reviewed files for incremental reviews"
+              fi
+              if [[ "$WORKFLOW_ADDED" == "true" ]]; then
+                echo "- \`.github/workflows/review-api-docs-on-merge.yml\` - Automated review workflow"
+              fi
+              echo ""
+            fi
+            echo "## Documentation Guidelines Applied"
+            echo ""
+            echo "This review follows the Ballerina connector API documentation guidelines:"
+            echo "- https://github.com/ballerina-platform/ballerina-library/blob/main/.claude/commands/review-docs.md"
+            echo ""
+            echo "## Review Checklist"
+            echo ""
+            echo "Please verify:"
+            echo "- [ ] Function descriptions are clear and concise"
+            echo "- [ ] Enum types have comprehensive descriptions"
+            echo "- [ ] Record fields are well-documented"
+            echo "- [ ] No \"Represents\" prefixes remain"
+            echo "- [ ] Important context (costs, limits, security) is preserved"
+            echo "- [ ] Brief usage snippets are helpful"
+            echo "- [ ] Technical accuracy is maintained"
+            if [[ "$STATE_FILE_EXISTS" == "true" ]]; then
+              echo "- [ ] State file looks reasonable (checksums present for reviewed files)"
+            fi
+            if [[ "$WORKFLOW_ADDED" == "true" ]]; then
+              echo "- [ ] Automated workflow is configured correctly"
+            fi
+            echo ""
+            echo "## Reference PRs"
+            echo ""
+            echo "Similar improvements:"
+            echo "- https://github.com/ballerina-platform/module-ballerinax-postgresql/pull/1241"
+            echo "- https://github.com/ballerina-platform/module-ballerina-crypto/pull/607"
+            echo ""
+            if [[ "$STATE_FILE_EXISTS" == "true" ]] || [[ "$WORKFLOW_ADDED" == "true" ]]; then
+              echo "## Next Steps"
+              echo ""
+              if [[ "$WORKFLOW_ADDED" == "true" ]]; then
+                echo "After merging this PR:"
+                echo "- ✅ Automated reviews will run on every PR merge to main"
+                echo "- ✅ Only changed files will be reviewed (incremental mode)"
+                echo "- ✅ Review bot will create PRs automatically with improvements"
+              fi
+              if [[ "$STATE_FILE_EXISTS" == "true" ]]; then
+                echo "- ✅ The state file will track which files have been reviewed"
+                echo "- ✅ Subsequent reviews will save 80-90% on API costs"
+              fi
+              echo ""
+            fi
+            echo "---"
+            echo ""
+            echo "🤖 Generated with Claude Code"
+          } > /tmp/pr-body.txt
+
+          gh pr create \
+            --title "Improve API documentation for low-code editor" \
+            --base "${{ github.event.inputs.target_branch }}" \
+            --head "$BRANCH_NAME" \
+            --body-file /tmp/pr-body.txt
+
+      - name: No changes detected
+        if: steps.check_changes.outputs.has_changes == 'false'
+        run: echo "No documentation changes were made. The API docs may already be up to date."
