@@ -29,7 +29,6 @@ jobs:
       - name: Checkout ballerina-library repository
         uses: actions/checkout@v3
         with:
-          repository: ballerina-platform/ballerina-library
           path: ballerina-library
 
       - name: Checkout target repository
