@@ -77,9 +77,10 @@ jobs:
           # Create .github/workflows directory if it doesn't exist
           mkdir -p .github/workflows
 
-          # Copy the automated workflow from ballerina-library
-          cp ../.github/workflows/review-api-docs-on-merge.yml \
-             .github/workflows/review-api-docs-on-merge.yml
+          # Fetch the workflow file from the repository
+          curl -s -H "Authorization: token ${{ secrets.BALLERINA_BOT_TOKEN }}" \
+            https://raw.githubusercontent.com/${{ github.repository }}/${{ github.ref_name }}/.github/workflows/review-api-docs-on-merge.yml \
+            -o .github/workflows/review-api-docs-on-merge.yml
 
           echo "✓ Added automated incremental review workflow"
 
