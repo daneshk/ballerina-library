@@ -27,8 +27,6 @@ jobs:
     steps:
       - name: Checkout ballerina-library repository
         uses: actions/checkout@v3
-        with:
-          path: ballerina-library
 
       - name: Checkout current repository
         uses: actions/checkout@v3
@@ -60,18 +58,18 @@ jobs:
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
-          cd ballerina-library/api_doc_reviewer
+          cd api_doc_reviewer
 
           if [[ "${{ steps.review_mode.outputs.mode }}" == "incremental" ]]; then
             # Incremental review
             bal run -- incremental \
-              ../../current-repo \
+              ../current-repo \
               ../.claude/commands/review-docs.md \
               ${{ github.sha }}
           else
             # Full review
             bal run -- full \
-              ../../current-repo \
+              ../current-repo \
               ../.claude/commands/review-docs.md
           fi
 

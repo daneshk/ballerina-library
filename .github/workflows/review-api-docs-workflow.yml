@@ -28,8 +28,6 @@ jobs:
     steps:
       - name: Checkout ballerina-library repository
         uses: actions/checkout@v3
-        with:
-          path: ballerina-library
 
       - name: Checkout target repository
         uses: actions/checkout@v3
@@ -64,9 +62,9 @@ jobs:
           TARGET_SHA=$(cd target-repo && git rev-parse HEAD)
 
           # Run incremental review from the api_doc_reviewer project
-          cd ballerina-library/api_doc_reviewer
+          cd api_doc_reviewer
           bal run -- incremental \
-            ../../target-repo \
+            ../target-repo \
             ../.claude/commands/review-docs.md \
             "$TARGET_SHA"
 
@@ -80,7 +78,7 @@ jobs:
           mkdir -p .github/workflows
 
           # Copy the automated workflow from ballerina-library
-          cp ../ballerina-library/.github/workflows/review-api-docs-on-merge.yml \
+          cp ../.github/workflows/review-api-docs-on-merge.yml \
              .github/workflows/review-api-docs-on-merge.yml
 
           echo "✓ Added automated incremental review workflow"
