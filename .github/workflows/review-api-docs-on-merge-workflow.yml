@@ -67,7 +67,7 @@ jobs:
             bal run -- incremental \
               ../../current-repo \
               ../.claude/commands/review-docs.md \
-              --commit-sha ${{ github.sha }}
+              ${{ github.sha }}
           else
             # Full review
             bal run -- full \

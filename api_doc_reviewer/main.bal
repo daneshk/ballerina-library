@@ -4,8 +4,8 @@
 // It supports both full and incremental review modes.
 //
 // Usage:
-//   bal run -- full <repo-path> <prompt-file> [--dry-run]
-//   bal run -- incremental <repo-path> <prompt-file> --commit-sha <sha> [--dry-run]
+//   bal run -- full <repo-path> <prompt-file> [dry-run]
+//   bal run -- incremental <repo-path> <prompt-file> <commit-sha> [dry-run]
 
 import ballerina/file;
 import ballerina/http;
@@ -306,14 +306,14 @@ function runIncrementalReview(string repoPath, string promptFile, string commitS
 function printUsage() {
     io:println("Usage:");
     io:println("  Full review:");
-    io:println("    bal run -- full <repo-path> <prompt-file> [--dry-run]");
+    io:println("    bal run -- full <repo-path> <prompt-file> [dry-run]");
     io:println();
     io:println("  Incremental review:");
-    io:println("    bal run -- incremental <repo-path> <prompt-file> --commit-sha <sha> [--dry-run]");
+    io:println("    bal run -- incremental <repo-path> <prompt-file> <commit-sha> [dry-run]");
     io:println();
     io:println("Options:");
-    io:println("  --dry-run      Preview what would be reviewed without making changes");
-    io:println("  --commit-sha   Git commit SHA for incremental review tracking (required for incremental mode)");
+    io:println("  dry-run      Preview what would be reviewed without making changes");
+    io:println("  <commit-sha> Git commit SHA for incremental review tracking (required for incremental mode)");
 }
 
 // Main function
@@ -346,31 +346,21 @@ public function main(string... args) returns error? {
         return error("Prompt file not found");
     }
 
-    // Parse additional options
-    boolean dryRun = false;
-    string commitSha = "";
-
-    int i = 3;
-    while i < args.length() {
-        string arg = args[i];
-        if arg == "--dry-run" {
-            dryRun = true;
-        } else if arg == "--commit-sha" && i + 1 < args.length() {
-            commitSha = args[i + 1];
-            i += 1;
-        }
-        i += 1;
-    }
-
     // Route to appropriate mode
     if mode == "full" {
+        // Parse optional dry-run flag for full mode
+        boolean dryRun = args.length() > 3 && args[3] == "dry-run";
         check runFullReview(repoPath, promptFile, dryRun, apiKey);
     } else if mode == "incremental" {
-        if commitSha == "" {
-            io:println("Error: --commit-sha is required for incremental mode");
+        // For incremental mode, commit-sha is required as 4th argument
+        if args.length() < 4 {
+            io:println("Error: commit-sha is required for incremental mode");
             printUsage();
             return error("Missing commit-sha");
         }
+        string commitSha = args[3];
+        // Parse optional dry-run flag for incremental mode
+        boolean dryRun = args.length() > 4 && args[4] == "dry-run";
         check runIncrementalReview(repoPath, promptFile, commitSha, dryRun, apiKey);
     } else {
         io:println("Error: Invalid mode '" + mode + "'. Must be 'full' or 'incremental'");

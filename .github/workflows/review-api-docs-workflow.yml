@@ -68,7 +68,7 @@ jobs:
           bal run -- incremental \
             ../../target-repo \
             ../.claude/commands/review-docs.md \
-            --commit-sha "$TARGET_SHA"
+            "$TARGET_SHA"
 
           echo "Review complete with state tracking"
 
