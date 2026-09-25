@@ -22,7 +22,7 @@ jobs:
   build:
     name: Build
     runs-on: ubuntu-22.04
-    if: github.repository_owner == 'ballerina-platform'
+    if: github.repository_owner == 'ballerina-platform' || github.repository_owner == 'daneshk'
     steps:
       # No caller's build is expected to shell out to git post-checkout (verified against
       # the callers in this org), so the credential helper GitHub would otherwise persist
@@ -102,7 +102,7 @@ jobs:
     name: Trivy Vulnerability Scan
     needs: build
     runs-on: ubuntu-22.04
-    if: github.repository_owner == 'ballerina-platform'
+    if: github.repository_owner == 'ballerina-platform' || github.repository_owner == 'daneshk'
     steps:
       # Needed so a repo-root .trivyignore (used by several repos, e.g.
       # module-ballerinax-salesforce, to suppress a specific already-triaged CVE) is
@@ -135,7 +135,7 @@ jobs:
     name: Ballerina Static Code Analysis
     needs: build
     runs-on: ubuntu-22.04
-    if: github.repository_owner == 'ballerina-platform'
+    if: github.repository_owner == 'ballerina-platform' || github.repository_owner == 'daneshk'
     permissions:
       contents: read
       security-events: write
